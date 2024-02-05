@@ -1,28 +1,41 @@
-//محمد شریفی طهرانی 402106123
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <time.h>
+
+char * Commands[12] = {"init" , "config" , "add" , "reset" , "commit" , "set" , "replace" , "remove" , "status" , "branch" , "log" , "checkout"};
 
 struct User {
-	char mode[2];
+	char name_mode[2];
 	char Username[256];
+	char email_mode[2];
 	char Email[256];
 };
 
 struct Commit{
 	char Path[256];
-	long int Size;
 	time_t ModifiedTime;	
+};
+
+struct Commit_Log{
+	char CommitID[20];
+	time_t CommitTime;
+	char CommitMessage[75];
+	char CommitUser[100];
+	char CommitBranch[100];
+	int CommitFileCount;
 };
 
 struct User CurUser;
 char cwd[256];
 char GitRoot[256];
-char ** CopyArgv;
+char CopyArgv[20][100];
 char ActiveBranch[100];
+char AliasString[1000];
+char CheckoutMode[10];
 
 // A function to check if a directory exists
 int dir_exists(char * path)
@@ -48,7 +61,7 @@ int file_exists(char * Path)
 // A function to create a directory
 void create_dir(char *path) {
   	if (mkdir(path) != 0) {
-    	printf("failed to create directory");
+    	printf("Failed to create directory");
     	exit(1);
   	}
 }
@@ -57,65 +70,68 @@ void create_dir(char *path) {
 void create_file(char *path) {
   	FILE *fp = fopen(path, "w");
   	if (fp == NULL) {
-    	printf("failed to create file");
+    	printf("Failed to create file");
     	exit(1);
   	}
   	fclose(fp);
 }
 
-// A function to set UserName & Email
-void setconfiguration()
+// A function to set Username & Email
+void save_configuration(int Mode)
 {
 	FILE * fp = fopen(".neogit\\config", "w");
 	if (!fp)
 	{
-		printf("failed to open config file");
-		exit(1);
-	}
-	fprintf(fp, "%s\n", CurUser.mode);
-	fprintf(fp, "%s\n", CurUser.Username);
-	fprintf(fp, "%s\n", CurUser.Email);
-	fprintf(fp, "%s\n", ActiveBranch);
-	fclose(fp);
-	
-	fp = fopen(".neogit\\branches", "w");
-	if (!fp)
-	{
-		printf("failed to open branches file");
-		exit(1);
-	}
-	fprintf(fp, "%s\n", ActiveBranch);
-	fclose(fp);
-	
-	fp = fopen(".neogit\\last_commit", "w");
-	if (!fp)
-	{
-		printf("failed to open branches file");
-		exit(1);
-	}
-	fprintf(fp, "%s\n", "None");
-	fclose(fp);
-}
-
-// A function to handle "init" command
-void init(int argc)
-{
-	// check parameters
-	if(argc > 2)
-	{
-		printf("Too many parameters...");
+		printf("Failed to open config file");
 		return;
 	}
-	
-  	// check existance of .neogit folder
-  	char WDirAdd[256];
+	fprintf(fp, "%s\n", CurUser.name_mode);
+	fprintf(fp, "%s\n", CurUser.Username);
+	fprintf(fp, "%s\n", CurUser.email_mode);
+	fprintf(fp, "%s\n", CurUser.Email);
+	fprintf(fp, "%s\n", ActiveBranch);
+	fprintf(fp, "%s\n", CheckoutMode);
+	fclose(fp);
+
+	if (Mode)
+	{	
+		fp = fopen(".neogit\\branches", "w");
+		if (!fp)
+		{
+			printf("Failed to open branches file");
+			return;
+		}
+		fprintf(fp, "%s\n", ActiveBranch);
+		fclose(fp);
+		
+		fp = fopen(".neogit\\last_commit", "w");
+		if (!fp)
+		{
+			printf("Failed to open last commit file");
+			return;
+		}
+		fprintf(fp, "%s\n", "None");
+		fclose(fp);		
+	}
+}
+
+void Extract_CWD()
+{
+	if (getcwd(cwd, sizeof(cwd)) == NULL) {
+    	printf("Failed to get current working directory");
+    	return;
+  	}
+}
+void Extract_Root()
+{
+	char WDirAdd[256];
   	char Temp[256];
    	strcpy(WDirAdd, cwd);
 	strcat(WDirAdd, "\\.neogit");
 	if (dir_exists(WDirAdd))
 	{
-		printf("neogit repository already exists in current directory\n");
-	   	exit(1);	
+		strcpy(GitRoot, cwd);
+	   	return;
 	}
 	
   	strcpy(WDirAdd, cwd);
@@ -130,26 +146,50 @@ void init(int argc)
 		else
 		{
 			strcpy(Temp, WDirAdd);
-			strcat(WDirAdd, ".neogit");
-			if (dir_exists(WDirAdd))
+			strcat(Temp, ".neogit");
+			if (dir_exists(Temp))
 			{
-				printf("neogit repository already exists in %s\n", Temp);
-		       	exit(1);	
+				WDirAdd[Pos] = '\0';
+				strcpy(GitRoot, WDirAdd);
+		       	return;	
 			}
 			Pos--;
 		}
 	}
-  	
+	strcpy(GitRoot, "None");
+	return;
+}
+
+// A function to handle "init" command
+void init(int argc)
+{
+	// check parameters
+	if(argc > 2)
+	{
+		printf("Too many parameters...");
+		return;
+	}
+	
+  	// check existance of .neogit folder
+  	if (strcmp(GitRoot, "None"))
+  	{
+  		printf("neogit repository already exists in %s\n", GitRoot);
+  		return;
+	}
+	
 	// Create the neogit folder and its subfolders and files
   	system("c:\\git\\init.bat");
   	printf("Initialized empty neogit repository in %s\n", cwd);
-  	setconfiguration(cwd);
+  	save_configuration(1);
 }
 
 // A function to handle "config" command
 void config(int argc, char * argv[])
 {
 	int isglobal = 0;
+	char isGlobalS[2];
+	strcpy(isGlobalS, "0");
+	FILE * fp;
 	// check parameters
 	if(argc > 5)
 	{
@@ -158,50 +198,143 @@ void config(int argc, char * argv[])
 	}
 	// check global switch
 	if (!strcmp(argv[2], "-global"))
-		isglobal = 1;
-	
-	// check parameters
-	if (!strcmp(argv[2+isglobal], "user.name"))
-		strcpy(CurUser.Username, CopyArgv[3+isglobal]);
-	if (!strcmp(argv[2+isglobal], "user.email"))
-		strcpy(CurUser.Email, CopyArgv[3+isglobal]);
-	if (strcmp(argv[2+isglobal], "user.name") && strcmp(argv[2+isglobal], "user.email"))
 	{
-	   	printf("wrong parameters\n");
-		exit(1);
+		isglobal = 1;
+		strcpy(isGlobalS, "1");
+	}
+	// check parameters
+	if (strstr(argv[2 + isglobal], "alias."))
+	{
+		if ((argc + isglobal) < 4 + isglobal)
+		{
+			printf("Too few Parameters...\n");
+			return;
+		}
+		char aliasStr[100];
+		int i, Pos = 0;
+		for(i = 6; CopyArgv[2 + isglobal][i]; i++)
+		{
+			aliasStr[Pos++] = CopyArgv[2 + isglobal][i];
+		}
+		aliasStr[Pos] = '\0';
+		char CommandStr[1000];
+		strcpy(CommandStr, "ExtractArgs ");
+		strcat(CommandStr, argv[3 + isglobal]);
+		int NewArgc = system(CommandStr);
+		char NewArgv[NewArgc][100];
+		fp = fopen("c:\\git\\Tempargs", "r");
+		if (!fp)
+		{
+			printf("Temporary args file cannot open...\n");
+			return;
+		}
+		Pos = 0;
+		fscanf(fp, "%[^\n]s", NewArgv[Pos++]);
+		while(!feof(fp))
+		{
+			fscanf(fp, "\n%[^\n]s", NewArgv[Pos++]);
+		}
+		fclose(fp);
+		remove("c:\\git\\Tempargs");
+
+		if (strcmp(NewArgv[1], "neogit"))
+		{
+			printf("Wrong command, command should start with neogit...\n");
+			return;
+		}
+		int Sw = 0;
+		for(i = 0; i < 12; i++)
+		{
+			if (!strcmp(NewArgv[2], Commands[i]))
+			{
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("Wrong command, command is not in legal commands (such as init, config, add ...)\n");
+			return;
+		}
+		if (isglobal == 1)
+		{
+			fp = fopen("c:\\git\\neogit_alias", "a");
+			if (!fp)
+			{
+				printf("Global alias file connot open...\n");
+				return;
+			}
+			fprintf(fp, "%s\n", aliasStr);
+			fprintf(fp, "%s\n", CopyArgv[4]);
+			fclose(fp);
+		}
+		else
+		{
+			char WFileAdd[1000];
+			strcpy(WFileAdd, GitRoot);
+			strcat(WFileAdd, "\\.neogit\\alias");
+			fp = fopen(WFileAdd, "a");
+			if (!fp)
+			{
+				printf("Local alias file cannot open...\n");
+				return;
+			}
+			fprintf(fp, "%s\n", aliasStr);
+			fprintf(fp, "%s\n", CopyArgv[3]);
+			fclose(fp);
+		}		
+		return;
 	}
 	
-	// set new configuration for local project
-	char TempDir[256];
-	strcpy(TempDir, GitRoot);
-	strcat(TempDir, "\\.neogit\\config");
-	FILE * fp = fopen(TempDir, "w");
-	if (!fp)
+	if (!strcmp(argv[2+isglobal], "user.name"))
 	{
-		printf("Local Config File Not Found...\n");
-		return;
-	}	
-	if (isglobal)
-		fprintf(fp, "%s\n", "1");
-	else
-		fprintf(fp, "%s\n", "0");
-	fprintf(fp, "%s\n", CurUser.Username);
-	fprintf(fp, "%s\n", CurUser.Email);
-	printf("Local Configuration Changed...\n");
-	fclose(fp);
+		strcpy(CurUser.Username, CopyArgv[3+isglobal]);
+		strcpy(CurUser.name_mode, isGlobalS);
+	}
+	if (!strcmp(argv[2+isglobal], "user.email"))
+	{
+		strcpy(CurUser.Email, CopyArgv[3+isglobal]);
+		strcpy(CurUser.email_mode, isGlobalS);
+	}
 	
+	if (strcmp(argv[2+isglobal], "user.name") && strcmp(argv[2+isglobal], "user.email") && !strstr(argv[2 + isglobal], "alias."))
+	{
+	   	printf("Wrong parameters\n");
+		return;
+	}
 	// set new configuration for all projects
 	if (isglobal)
 	{
 		fp = fopen("C:\\git\\neogit_config", "w");
 		if (!fp)
 		{
-			printf("Local Config File Not Found...\n");
+			printf("Global config file not found...\n");
 			return;
 		}	
 		fprintf(fp, "%s\n", CurUser.Username);
 		fprintf(fp, "%s\n", CurUser.Email);
-		printf("Global Configuration Changed...\n");
+		printf("Global configuration changed...\n");
+		fclose(fp);
+	}
+	// set new configuration for local project
+	char TempDir[256];
+	strcpy(TempDir, GitRoot);
+	strcat(TempDir, "\\.neogit");
+	if (dir_exists(TempDir))
+	{
+		strcat(TempDir, "\\config");
+		fp = fopen(TempDir, "w");
+		if (!fp)
+		{
+			printf("Local config file not found...\n");
+			return;
+		}	
+		fprintf(fp, "%s\n", CurUser.name_mode);
+		fprintf(fp, "%s\n", CurUser.Username);
+		fprintf(fp, "%s\n", CurUser.email_mode);
+		fprintf(fp, "%s\n", CurUser.Email);
+		fprintf(fp, "%s\n", ActiveBranch);
+		fprintf(fp, "%s\n", CheckoutMode);
+		printf("Local configuration changed...\n");
 		fclose(fp);
 	}
 }
@@ -215,7 +348,6 @@ void extract_path(char * Path, char * DiffPath, char * FileName)
 		DiffPath[Pos++] = Path[i];
 	}
 	DiffPath[Pos] = '\0';
-	
 	char TempName[100];
 	Pos = 0;
 	for(i = strlen(DiffPath) - 1; i >= 0; i--)
@@ -232,7 +364,10 @@ void extract_path(char * Path, char * DiffPath, char * FileName)
 			break;	
 		}
 	}
-	
+	if (i == -1) 
+	{
+		TempName[Pos] = '\0';
+	}
 	Pos = 0;
 	for(i = strlen(TempName) - 1; i >= 0; i--)
 	{
@@ -263,7 +398,7 @@ int isModified(char * Path, struct Commit Commited[], int CommitedCounter)
 	for(i = 0; i < CommitedCounter; i++)
 		if (!strcmp(Path, Commited[i].Path))
 		{
-			if (St.st_size == Commited[i].Size && St.st_mtime == Commited[i].ModifiedTime)
+			if (St.st_mtime == Commited[i].ModifiedTime)
 				return 0;
 			else 
 				return 1;
@@ -278,7 +413,7 @@ void add_file(char * Path, char Staged[][256], int StagedCounter)
 	strcat(WFileAdd, "\\.neogit\\staged");
 	FILE * fp = fopen(WFileAdd, "a");
 	if (!fp) {
-		printf("stage file not exists...\n");
+		printf("Stage file doesn't exist...\n");
 		return;
 	}
 	int Pos;
@@ -296,7 +431,7 @@ void add_dir_file(char * Path, char Staged[][256], int StagedCounter, struct Com
 	strcat(WFileAdd, "\\.neogit\\staged");
 	FILE * fp = fopen(WFileAdd, "a");
 	if (!fp) {
-		printf("stage file not exists...\n");
+		printf("stage file doesn't exist...\n");
 		return;
 	}
 	int Pos;
@@ -311,7 +446,7 @@ void add_directory(char * Path, char Staged[][256], int StagedCounter, struct Co
 {
 	DIR *dir = opendir(Path);
 	if (dir == NULL) {
-    	printf("cannot open directory %s\n", Path);
+    	printf("Cannot open directory %s\n", Path);
     	return;
 	}
 	struct dirent *entry;
@@ -334,6 +469,45 @@ void add_directory(char * Path, char Staged[][256], int StagedCounter, struct Co
 			add_directory(Temp, Staged, StagedCounter, Commited, CommitedCounter);
 		}
 	}
+	closedir(dir);
+}
+
+void add_wildcard(char* Path, char Staged[][256], int StagedCounter, struct Commit Commited[], int CommitedCounter)
+{
+	char Command[1000];
+	strcpy(Command, "dir ");
+	strcat(Command, Path);
+	strcat(Command, " /b > c:\\git\\temp");
+	system(Command);
+	
+	FILE * fp = fopen("c:\\git\\temp", "r");
+	if (!fp)
+	{
+		printf("Temporary dir file not found...\n");
+		return;
+	}
+	
+	char WFileAdd[1000];
+	char Name[100];
+	fscanf(fp, "%[^\n]s", Name);
+	while(!feof(fp))
+	{
+		strcpy(WFileAdd, cwd);
+		strcat(WFileAdd, "\\");
+		strcat(WFileAdd, Name);	
+		if (file_exists(WFileAdd))
+		{
+			add_file(WFileAdd, Staged, StagedCounter);
+		}
+		if (dir_exists(WFileAdd))
+		{
+			add_directory(WFileAdd, Staged, StagedCounter, Commited, CommitedCounter);
+		}	
+		fscanf(fp, "\n%[^\n]s", Name);	
+	}
+	fclose(fp);
+	remove("c:\\git\\temp");
+	return;
 }
 
 void add_multiple_filedir(int argc, char *argv[], char Staged[][256], int StagedCounter, struct Commit Commited[], int CommitedCounter)
@@ -363,7 +537,7 @@ int load_staged(char Staged[][256], int * StagedCounter)
 	strcat(WFileAdd, "\\.neogit\\staged");
 	FILE * fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("Stage file not exists...\n");
+		printf("Stage file doesn't exist...\n");
 		return 0;
 	}
 	
@@ -385,7 +559,7 @@ int load_last_commited(struct Commit Commited[], int * CommitedCounter)
 	strcat(WFileAdd, "\\.neogit\\last_commit");
 	FILE * fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("Commited file not exists...\n");
+		printf("Commited file doesn't exist...\n");
 		return 0;
 	}
 	fscanf(fp, "%s", LastCommit);
@@ -402,7 +576,7 @@ int load_last_commited(struct Commit Commited[], int * CommitedCounter)
 	strcat(WFileAdd, "_files");
 	fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("last Commited file not exists...\n");
+		printf("Last commited file doesn't exist...\n");
 		return;
 	}
 	fscanf(fp, "%s", Commited[*CommitedCounter].Path);
@@ -424,20 +598,22 @@ void extract_commited_info(struct Commit Commited[], int CommitedCounter)
 	char CommitPath[1000];
 	char WFileAdd[256];
 	char LastCommit[20];
+	char LastCommitBranch[100];
 	
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\last_commit");
 	FILE * fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("Commited file not exists...\n");
+		printf("Commited file doesn't exist...\n");
 		return;
 	}
 	fscanf(fp, "%s", LastCommit);
+	fscanf(fp, "%s", LastCommitBranch);
 	fclose(fp);
 	
 	strcpy(CommitPath, GitRoot);
 	strcat(CommitPath, "\\.neogit\\repository\\");
-	strcat(CommitPath, ActiveBranch);
+	strcat(CommitPath, LastCommitBranch);
 	strcat(CommitPath, "\\");
 	strcat(CommitPath, LastCommit);
 	
@@ -448,12 +624,13 @@ void extract_commited_info(struct Commit Commited[], int CommitedCounter)
 		
 		strcpy(TempPath, CommitPath);
 		strcat(TempPath, "\\");
-		strcat(TempPath, DiffPath);
-		strcat(TempPath, "\\");
+		if (strlen(DiffPath) > 0)
+		{
+			strcat(TempPath, DiffPath);
+			strcat(TempPath, "\\");			
+		}
 		strcat(TempPath, FileName);
 		stat(TempPath, &St);
-
-		Commited[i].Size = St.st_size;
 		Commited[i].ModifiedTime = St.st_mtime;
 	}
 }
@@ -478,18 +655,23 @@ void add(int argc, char * argv[])
 	
 	strcpy(WFileAdd, cwd);
 	strcat(WFileAdd, "\\");
-	strcat(WFileAdd, argv[2]);
+	strcat(WFileAdd, CopyArgv[2]);
+	
+	if (strstr(CopyArgv[2], "*") || strstr(CopyArgv[2], "?"))
+	{
+		add_wildcard(WFileAdd, Staged, StagedCounter, Commited, CommitedCounter);
+		return;
+	}
+		
 	if (!file_exists(WFileAdd) && !dir_exists(WFileAdd))
 	{
 		printf("%s file or folder not found...\n", WFileAdd);
 		return;
 	}
-	
 	if (file_exists(WFileAdd))
 	{
 		add_file(WFileAdd, Staged, StagedCounter);
 	}
-		
 	if (dir_exists(WFileAdd))
 	{
 		add_directory(WFileAdd, Staged, StagedCounter, Commited, CommitedCounter);
@@ -509,7 +691,7 @@ void reset_directory(char * Path, char Staged[][256], int StagedCounter, char Re
 {
 	DIR *dir = opendir(Path);
 	if (dir == NULL) {
-    	printf("cannot open directory %s\n", Path);
+    	printf("Cannot open directory %s\n", Path);
     	return;
 	}
 	struct dirent *entry;
@@ -560,22 +742,9 @@ void reset(int argc, char * argv[])
 	char Reseted[100];
 	char WFileAdd[256];
 	int StagedCounter = 0;
-
-	strcpy(WFileAdd, GitRoot);
-	strcat(WFileAdd, "\\.neogit\\staged");
-	FILE * fp = fopen(WFileAdd, "r");
-	if (!fp) {
-		printf("Stage file not exists...\n");
-		return;
-	}
+	FILE * fp;
 	
-	fscanf(fp, "%s", Staged[StagedCounter]);
-	while(!feof(fp))
-	{
-		StagedCounter++;
-		fscanf(fp, "%s", Staged[StagedCounter]);
-	}
-	fclose(fp);
+	load_staged(Staged, &StagedCounter);
 	
 	int i;
 	for(i = 0; i < StagedCounter; i++)
@@ -634,49 +803,23 @@ void status()
 	char WDirAdd[256];
 	char Temp[256];
 	int Pos;
-	
-	strcpy(WFileAdd, GitRoot);
-	strcat(WFileAdd, "\\.neogit\\staged");
-	FILE * fp = fopen(WFileAdd, "r");
-	if (!fp) {
-		printf("Stage file not exists...\n");
-		return;
-	}
-	
 	int StagedCounter = 0;
-	fscanf(fp, "%s", Staged[StagedCounter]);
-	while(!feof(fp))
-	{
-		StagedCounter++;
-		fscanf(fp, "%s", Staged[StagedCounter]);
-	}
-	fclose(fp);
-
-	strcpy(WFileAdd, GitRoot);
-	strcat(WFileAdd, "\\.neogit\\commits");
-	fp = fopen(WFileAdd, "r");
-	if (!fp) {
-		printf("Commited file not exists...\n");
-		return;
-	}
 	int CommitedCounter = 0;
-	fscanf(fp, "%s %ld %ld", Commited[CommitedCounter].Path, Commited[CommitedCounter].Size, Commited[CommitedCounter].ModifiedTime);
-	while(!feof(fp))
-	{
-		CommitedCounter++;
-		fscanf(fp, "%s %ld %ld", Commited[CommitedCounter].Path, Commited[CommitedCounter].Size, Commited[CommitedCounter].ModifiedTime);
-	}
-	fclose(fp);
 
+	load_staged(Staged, &StagedCounter);
+	int res = load_last_commited(Commited, &CommitedCounter);
+	if (res) extract_commited_info(Commited, CommitedCounter);
+		
 	DIR *dir = opendir(cwd);
 	if (dir == NULL) {
-    	printf("cannot open directory %s\n", cwd);
+    	printf("Cannot open directory %s\n", cwd);
     	return;
 	}
 	struct dirent *entry;
 	char StagedSign;
 	char ModifiedSign;
 	int ModifiedMode;
+	int Sw = 0;
 	while ((entry = readdir(dir)) != NULL)
 	{
     	if (!strcmp((*entry).d_name, ".") || !strcmp((*entry).d_name, "..")) 
@@ -697,9 +840,18 @@ void status()
     			ModifiedSign = 'M';
     		if (ModifiedMode == 2)
     			ModifiedSign = 'A';
-    		printf("%c %c %s\n", StagedSign, ModifiedSign, Temp);
+    		if ((StagedSign == '+') || (ModifiedSign == 'M') || (ModifiedSign == 'A'))
+    		{
+    			printf("%c %c %s\n", StagedSign, ModifiedSign, Temp);
+				Sw = 1;
+			}
 		}
 	}	
+	if (!Sw)
+	{
+		printf("No Change To Show...\n");
+		return;
+	}
 }
 
 void Load_SCMess(char SCName[100][75], char SCMess[100][75], int * SCMessCounter)
@@ -710,7 +862,7 @@ void Load_SCMess(char SCName[100][75], char SCMess[100][75], int * SCMessCounter
 	strcat(WFileAdd, "\\.neogit\\SCMess");
 	FILE * fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("shortcut meesages file not exists...\n");
+		printf("Shortcut messages file doesn't exist...\n");
 		return;
 	}
 	
@@ -733,7 +885,7 @@ void Save_SCMess(char SCName[100][75], char SCMess[100][75], int SCMessCounter)
 	strcat(WFileAdd, "\\.neogit\\SCMess");
 	FILE * fp = fopen(WFileAdd, "w");
 	if (!fp) {
-		printf("shortcut meesages file not exists...\n");
+		printf("Shortcut messages file doesn't exist...\n");
 		return;
 	}
 	int i;
@@ -749,12 +901,12 @@ void setSM(int argc, char * argv[])
 {
 	if (strcmp(argv[2], "-m") || strcmp(argv[4], "-s"))
 	{
-		printf("wrong parameters...\n");
+		printf("Wrong parameters...\n");
 		return;
 	}
 	if (strlen(argv[3]) > 72)
 	{
-		printf("message should be less than 73 char...\n");
+		printf("Message should be less than 73 char...\n");
 		return;
 	}
 	int SCMessCounter = 0;
@@ -766,7 +918,7 @@ void setSM(int argc, char * argv[])
 	{
 		if (!strcmp(CopyArgv[5], SCName[i]))
 		{
-			printf("message shortcut already exists...\n");
+			printf("Message shortcut already exists...\n");
 			return;
 		}
 	}
@@ -777,7 +929,7 @@ void setSM(int argc, char * argv[])
 	strcat(WFileAdd, "\\.neogit\\SCMess");
 	FILE * fp = fopen(WFileAdd, "a");
 	if (!fp) {
-		printf("shortcut meesages file not exists...\n");
+		printf("Shortcut messages file doesn't exist...\n");
 		return;
 	}
 	fprintf(fp, "%s\n", CopyArgv[5]);
@@ -789,12 +941,12 @@ void replaceSM(int argc, char * argv[])
 {
 	if (strcmp(argv[2], "-m") || strcmp(argv[4], "-s"))
 	{
-		printf("wrong parameters...\n");
+		printf("Wrong parameters...\n");
 		return;
 	}
 	if (strlen(argv[3]) > 72)
 	{
-		printf("message should be less than 73 char...\n");
+		printf("Message should be less than 73 chars...\n");
 		return;
 	}
 	int SCMessCounter = 0;
@@ -812,7 +964,7 @@ void replaceSM(int argc, char * argv[])
 	}
 	if (!Sw)
 	{
-		printf("message shortcut not found...\n");
+		printf("Message shortcut not found...\n");
 		return;
 	}
 	Save_SCMess(SCName, SCMess, SCMessCounter);
@@ -822,7 +974,7 @@ void removeSM(int argc, char * argv[])
 {
 	if (strcmp(argv[2], "-s"))
 	{
-		printf("wrong parameters...\n");
+		printf("Wrong parameters...\n");
 		return;
 	}
 	
@@ -843,7 +995,7 @@ void removeSM(int argc, char * argv[])
 	}
 	if (!Sw)
 	{
-		printf("message shortcut not found...\n");
+		printf("Message shortcut not found...\n");
 		return;
 	}
 	SCMessCounter--;
@@ -852,41 +1004,50 @@ void removeSM(int argc, char * argv[])
 
 void commit(int argc, char * argv[])
 {
+	if (!strcmp(CheckoutMode, "OLD"))
+	{
+		printf("You are in an old commit checkout, commit command is impossible. Checkout HEAD first");
+		return;
+	}
 	if (argc != 4)
 	{
-		printf("few parameters...\n");
+		printf("Few parameters...\n");
 		return;
 	}
 	if (strcmp(argv[2], "-m") && strcmp(argv[2], "-s"))
 	{
-		printf("wrong parameters...\n");
+		printf("Wrong parameters...\n");
 		return;
 	}
 	if (strlen(argv[3]) > 72)
 	{
-		printf("message should be less than 73 char...\n");
+		printf("Message should be less than 73 chars...\n");
 		return;
 	}
 	
 	char Message[75];
-	strcpy(Message, argv[3]);
+	strcpy(Message, CopyArgv[3]);
 	if (strcmp(argv[2], "-s") == 0)
 	{
 		int SCMessCounter = 0;
 		char SCName[100][75];
 		char SCMess[100][75];
 		Load_SCMess(SCName, SCMess, &SCMessCounter);
-		int i;
+		int i, sw = 0;
 		for(i = 0; i < SCMessCounter; i++)
 		{
 			if (!strcmp(CopyArgv[3], SCName[i]))
 			{
 				strcpy(Message, SCMess[i]);
+				sw = 1;
 				break;
 			}
 		}
-		printf("shortcut message not found...\n");
-		return;
+		if (!sw)
+		{
+			printf("Shortcut message not found...\n");
+			return;
+		}
 	}
 	
 	char Staged[100][256];
@@ -895,7 +1056,7 @@ void commit(int argc, char * argv[])
 	load_staged(Staged, &StagedCounter);
 	if (StagedCounter == 0)
 	{
-		printf("no file in stage mode...\n");
+		printf("No file in staged mode...\n");
 		return;
 	}
 	
@@ -961,10 +1122,10 @@ void commit(int argc, char * argv[])
 	fclose(TempBat);
 	system("TempBat.bat");
 	remove("TempBat.bat");
-	printf("%d files comitted.\n", StagedCounter);
-	printf("stage id : %s\n", CommitTimeS);
-	printf("comitt message : %s\n", Message);
-	printf("commit time : %s", ctime(&CommitTime));
+	printf("%d Files commited.\n", StagedCounter);
+	printf("Commit ID : %s\n", CommitTimeS);
+	printf("Commit Message : %s\n", Message);
+	printf("Commit Time : %s", ctime(&CommitTime));
 	
 	char CommitsFilePath[1000];
 	strcpy(CommitsFilePath, GitRoot);
@@ -978,6 +1139,7 @@ void commit(int argc, char * argv[])
 	strcat(LastCommitFilePath, "\\.neogit\\last_commit");
 	fp = fopen(LastCommitFilePath, "w");
 	fprintf(fp, "%s\n", CommitTimeS);
+	fprintf(fp, "%s\n", ActiveBranch);
 	fclose(fp);
 	
 	char StagedFilePath[1000];
@@ -987,9 +1149,249 @@ void commit(int argc, char * argv[])
 	fclose(fp);
 }
 
+void Load_Commits_Info(struct Commit_Log Commit_Logs[], int * CommitCounter)
+{
+	char Path[1000];
+	char Temp[1000];
+	char FileName[30];
+	char CommitID[20];
+	FILE * fp;
+	int i;
+	
+	strcpy(Path, GitRoot);
+	strcat(Path, "\\.neogit\\repository\\");
+	DIR *dir = opendir(Path);
+	if (dir == NULL) {
+    	printf("Cannot open repository directory\n");
+    	return;
+	}
+	struct dirent *entry;
+	while ((entry = readdir(dir)) != NULL)
+	{
+    	if (!strcmp((*entry).d_name, ".") || !strcmp((*entry).d_name, "..")) 
+		{
+      		continue;
+    	}
+    	if (strstr((*entry).d_name, "_info"))
+    	{
+			strcpy(FileName, (*entry).d_name);
+			for(i = 0; i < strlen(FileName) - 5; i++)
+			{
+				CommitID[i] = FileName[i];
+			}
+			CommitID[i] = '\0';
+			strcpy(Commit_Logs[*CommitCounter].CommitID, CommitID);
+			Commit_Logs[*CommitCounter].CommitTime = strtol(CommitID, NULL, 10);
+			strcpy(Temp, Path);
+			strcat(Temp, "\\");
+			strcat(Temp, FileName);
+			fp = fopen(Temp, "r");
+			if (!fp)
+			{
+				printf("Cannot open commit info file for %s\n", CommitID);
+				return;
+			}
+			fscanf(fp, "%[^\n]s", &Commit_Logs[*CommitCounter].CommitMessage);
+			fscanf(fp, "\n%[^\n]s", &Commit_Logs[*CommitCounter].CommitUser);
+			fscanf(fp, "\n%s", &Commit_Logs[*CommitCounter].CommitBranch);
+			fscanf(fp, "%d", &Commit_Logs[*CommitCounter].CommitFileCount);
+			
+			(*CommitCounter)++;
+		}
+	}
+	closedir(dir);
+}
+
 void log_git(int argc, char * argv[])
 {
+	if (argc < 2 || argc > 4)
+	{
+		printf("Too many parameters...\n");
+		return;
+	}
+	int i, n, Sw = 0;
+	struct Commit_Log Commit_Logs[1000];
+	int CommitCounter = 0;
+	Load_Commits_Info(Commit_Logs, &CommitCounter);
+
+	// log
+	if (argc == 2)
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+			printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+			printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+			printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+			printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+			printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+			printf("==============================\n");
+		}
+		return;
+	}
+
+	// log -n
+	n = CommitCounter;
+	if (!strcmp(argv[2], "-n"))
+	{
+		if (atoi(argv[3]) < n)
+		{
+			n = atoi(argv[3]);
+		}
+		for(i = CommitCounter - 1; i >= CommitCounter - n; i--)
+		{
+			printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+			printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+			printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+			printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+			printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+			printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+			printf("==============================\n");
+		}
+		return;
+	}
+		
+	// log -branch
+	if (!strcmp(argv[2], "-branch"))
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			if (!strcmp(CopyArgv[3], Commit_Logs[i].CommitBranch))
+			{
+				printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+				printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+				printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+				printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+				printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+				printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+				printf("==============================\n");
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("This branch is not valid...\n");
+		}
+		return;
+	}
 	
+	// log -author
+	if (!strcmp(argv[2], "-author"))
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			if (!strcmp(CopyArgv[3], Commit_Logs[i].CommitUser))
+			{
+				printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+				printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+				printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+				printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+				printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+				printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+				printf("==============================\n");
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("Commits by this author not found...\n");
+		}
+		return;		
+	}
+	
+	// log -search
+	if (!strcmp(argv[2], "-search"))
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			if (strstr(Commit_Logs[i].CommitMessage, CopyArgv[3]))
+			{
+				printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+				printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+				printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+				printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+				printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+				printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+				printf("==============================\n");
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("Commits containing this message not found...\n");
+		}		
+		return;		
+	}
+	
+	time_t TempTime;
+	int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0 ;  
+	if (sscanf(argv[3], "%4d.%2d.%2d %2d:%2d:%2d", &year, &month, &day, &hour, &min, &sec) == 6) {
+		struct tm breakdown = {0};
+       	breakdown.tm_year = year - 1900; /* years since 1900 */
+       	breakdown.tm_mon = month - 1;
+       	breakdown.tm_mday = day;
+       	breakdown.tm_hour = hour;
+       	breakdown.tm_min = min;
+       	breakdown.tm_sec = sec;
+    	if ((TempTime = mktime(&breakdown)) == (time_t)-1) {
+        	printf("Could not convert time input to time_t...\n");
+        	return;
+       	}
+   	}
+   	else 
+	{
+    	printf("The input was not a valid time format...\n");
+      	return;
+   	}
+   	
+	// log -Since
+	if (!strcmp(argv[2], "-since"))
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			if (TempTime < Commit_Logs[i].CommitTime)
+			{
+				printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+				printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+				printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+				printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+				printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+				printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+				printf("==============================\n");
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("Commits after this time not found...\n");
+		}		
+		return;		
+	}
+	
+	// log -Before
+	if (!strcmp(argv[2], "-before"))
+	{
+		for(i = CommitCounter - 1; i >= 0; i--)
+		{
+			if (TempTime > Commit_Logs[i].CommitTime)
+			{
+				printf("Commit ID : %s\n", Commit_Logs[i].CommitID);
+				printf("Commit Time : %s", ctime(&Commit_Logs[i].CommitTime));
+				printf("Commit Message : %s\n", Commit_Logs[i].CommitMessage);
+				printf("Commit User : %s\n", Commit_Logs[i].CommitUser);
+				printf("Commit Branch : %s\n", Commit_Logs[i].CommitBranch);
+				printf("Commit File Count : %d\n", Commit_Logs[i].CommitFileCount);
+				printf("==============================\n");
+				Sw = 1;
+			}
+		}
+		if (!Sw)
+		{
+			printf("Commits before this time not found...\n");
+		}		
+		return;				
+	}
+	printf("Wrong Parameters...\n");
 }
 
 void load_branches(char Branches[][100], int * BranchCounter)
@@ -999,7 +1401,7 @@ void load_branches(char Branches[][100], int * BranchCounter)
 	strcat(WFileAdd, "\\.neogit\\branches");
 	FILE * fp = fopen(WFileAdd, "r");
 	if (!fp) {
-		printf("branch file not exists...\n");
+		printf("Branch file doesn't exist...\n");
 		return;
 	}
 	fscanf(fp, "%s", Branches[*BranchCounter]);
@@ -1015,7 +1417,7 @@ void branch(int argc, char * argv[])
 {
 	if (argc > 3)
 	{
-		printf("too many parameters...\n");
+		printf("Too many parameters...\n");
 		return;
 	}
 	
@@ -1033,9 +1435,9 @@ void branch(int argc, char * argv[])
 	int i;
 	for(i = 0; i < BranchCounter; i++)
 	{
-		if (!strcmp(Branches[i], argv[2]))
+		if (!strcmp(Branches[i], CopyArgv[2]))
 		{
-			printf("thin branch already existed...\n");
+			printf("This branch is already made...\n");
 			return;
 		}
 	}
@@ -1046,10 +1448,10 @@ void branch(int argc, char * argv[])
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\branches");
 	FILE * fp = fopen(WFileAdd, "a");
-	fprintf(fp, "%s\n", argv[2]);
+	fprintf(fp, "%s\n", CopyArgv[2]);
 	fclose(fp);
 	
-	// retrive last commit id
+	// retrieve last commit id
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\last_commit");
 	fp = fopen(WFileAdd, "r");
@@ -1066,26 +1468,31 @@ void branch(int argc, char * argv[])
 	char NewCommitPath[1000];
 	strcpy(NewCommitPath, GitRoot);
 	strcat(NewCommitPath, "\\.neogit\\repository\\");
-	strcat(NewCommitPath, argv[2]);
+	strcat(NewCommitPath, CopyArgv[2]);
 	create_dir(NewCommitPath);
 	strcat(NewCommitPath, "\\");
 	strcat(NewCommitPath, CommitTimeS);
 	create_dir(NewCommitPath);
 	
-	// retrive last commit info
+	// retrieve last commit info
 	char Message[100];
 	char User[100];
 	char Branch[100];
-	char Number[10];
+	int Number;
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\repository\\");
 	strcat(WFileAdd, LCID);
 	strcat(WFileAdd, "_info");
 	fp = fopen(WFileAdd, "r");
-	fscanf(fp, "%s", Message);
-	fscanf(fp, "%s", User);
-	fscanf(fp, "%s", Branch);
-	fscanf(fp, "%s", Number);
+	if (!fp)
+	{
+		printf("Cannot open last commit file info\n");
+		return;
+	}
+	fscanf(fp, "%[^\n]s", Message);
+	fscanf(fp, "\n%[^\n]s", User);
+	fscanf(fp, "\n%[^\n]s", Branch);
+	fscanf(fp, "%d", &Number);
 	fclose(fp);
 	
 	// make source address
@@ -1097,6 +1504,11 @@ void branch(int argc, char * argv[])
 	
 	// make BAT file to copy files
 	fp = fopen("Temp.bat", "w");
+	if (!fp)
+	{
+		printf("Cannot create bat file\n");
+		return;
+	}
 	fprintf(fp, "echo OFF\n");
 	fprintf(fp, "xcopy %s %s /s\n", WFileAdd, NewCommitPath);
 	fprintf(fp, "echo ON\n");
@@ -1109,13 +1521,24 @@ void branch(int argc, char * argv[])
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\commits");
 	fp = fopen(WFileAdd, "a");
+	if (!fp)
+	{
+		printf("Cannot open commits file\n");
+		return;
+	}
 	fprintf(fp, "%s\n", CommitTimeS);
 	fclose(fp);
 	
 	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit\\last_commit");
 	fp = fopen(WFileAdd, "w");
+	if (!fp)
+	{
+		printf("Cannot open last commit file \n");
+		return;
+	}
 	fprintf(fp, "%s\n", CommitTimeS);
+	fprintf(fp, "%s\n", CopyArgv[2]);
 	fclose(fp);
 	
 	strcpy(WFileAdd, GitRoot);
@@ -1123,7 +1546,7 @@ void branch(int argc, char * argv[])
 	strcat(WFileAdd, CommitTimeS);
 	strcat(WFileAdd, "_info");
 	fp = fopen(WFileAdd, "w");
-	fprintf(fp, "%s\n%s\n%s\n%d", Message, User, argv[2], Number);
+	fprintf(fp, "%s\n%s\n%s\n%d", Message, User, CopyArgv[2], Number);
 	fclose(fp);
 	
 	strcpy(WFileAdd, GitRoot);
@@ -1148,9 +1571,280 @@ void branch(int argc, char * argv[])
     fclose(Dest); 
 }
 
-void chechout()
+void load_Commits(char Commits[][100], int * CommitsCounter)
 {
+	char WFileAdd[1000];
+	strcpy(WFileAdd, GitRoot);
+	strcat(WFileAdd, "\\.neogit\\commits");
+	FILE * fp = fopen(WFileAdd, "r");
+	if (!fp)
+	{
+		printf("Commits file not found...\n");
+		return;
+	}
+	fscanf(fp, "%s", Commits[*CommitsCounter]);
+	while(!feof(fp))
+	{
+		(*CommitsCounter)++;
+		fscanf(fp, "%s", Commits[*CommitsCounter]);
+	}
+	fclose(fp);
+	return;
+}
+
+int check_change()
+{
+	char LC[20];
+	time_t LCT;
+	char Path[1000];
+	strcpy(Path, GitRoot);
+	strcat(Path, "\\.neogit\\last_commit");
+	FILE * fp = fopen(Path, "r");
+	if (!fp)
+	{
+		printf("Last commit file cannot be opened...\n");
+		return 0;
+	}
+	fscanf(fp, "%s", LC);
+	fclose(fp);
+	if (!strcmp(LC, "None"))
+	{
+		return 1;
+	}
+	LCT = strtol(LC, NULL, 10);
+	char Command[1000];
+	strcpy(Command, "dir ");
+	strcat(Command, GitRoot);
+	strcat(Command, "\\*.* /A-D /S /B > c:\\git\\temp");
+	system(Command);
+	struct stat St;
+	fp = fopen("c:\\git\\temp", "r");
+	if (!fp)
+	{
+		printf("Temp list file is not accessible...\n");
+		return;
+	}
+	fscanf(fp, "%[^\n]s", Path);
+	while(!feof(fp))
+	{
+		if (strstr(Path, "\\.neogit\\"))
+		{
+			fscanf(fp, "\n%[^\n]s", Path);
+			continue;
+		}
+		stat(Path, &St);
+		if (St.st_mtime > LCT)
+		{
+			return 1;
+		}
+		fscanf(fp, "\n%[^\n]s", Path);
+	}
+	fclose(fp);
+	remove("c:\\git\\temp");
+	return 0;
+}
+
+int checkout_branch(char * BranchName)
+{
+	char Branches[100][100];
+	int BranchCounter = 0;
+	char Branch[100];
+	char CommitID[20];
+	load_branches(Branches, &BranchCounter);
+	int i, Sw = 0;
+	for(i = 0; i < BranchCounter; i++)
+	{
+		if (!strcmp(BranchName, Branches[i]))
+		{
+			strcpy(Branch, Branches[i]);
+			Sw = 1;
+			break;
+		}
+	}
+	if (!Sw)
+	{
+		return 0;
+	}
+	struct Commit_Log Commit_Logs[1000];
+	int CommitCounter = 0;
+	Load_Commits_Info(Commit_Logs, &CommitCounter);
+	for(i = CommitCounter - 1; i >= 0; i--)
+	{
+		if (!strcmp(Commit_Logs[i].CommitBranch, Branch))
+		{
+			strcpy(CommitID, Commit_Logs[i].CommitID);
+			break;
+		}
+	}
 	
+	char SourcePath[1000];
+	
+	strcpy(SourcePath, GitRoot);
+	strcat(SourcePath, "\\.neogit\\repository\\");
+	strcat(SourcePath, Branch);
+	strcat(SourcePath, "\\");
+	strcat(SourcePath, CommitID);
+	
+	char Command[1000];
+	strcpy(Command, "xcopy \"");
+	strcat(Command, SourcePath);
+	strcat(Command, "\" \"");
+	strcat(Command, GitRoot);
+	strcat(Command, "\" /Y /S /Q");
+	system(Command);
+	strcpy(ActiveBranch, Branch);
+	strcpy(CheckoutMode, "HEAD");
+	save_configuration(0);
+	printf("Branch %s checkedout...\n", Branch);
+	return 1;
+}
+
+int checkout_id(char * InputID)
+{
+	char Commits[100][100];
+	int CommitsCounter = 0;
+	char Branch[100];
+	char CommitID[20];
+	load_Commits(Commits, &CommitsCounter);
+	int i, Sw = 0;
+	for(i = 0; i < CommitsCounter; i++)
+	{
+		if (!strcmp(InputID, Commits[i]))
+		{
+			strcpy(CommitID, Commits[i]);
+			Sw = 1;
+			break;
+		}
+	}
+	if (!Sw)
+	{
+		return 0;
+	}
+	struct Commit_Log Commit_Logs[1000];
+	int CommitCounter = 0;
+	Load_Commits_Info(Commit_Logs, &CommitCounter);
+	for(i = CommitCounter - 1; i >= 0; i--)
+	{
+		if (!strcmp(Commit_Logs[i].CommitID, CommitID))
+		{
+			strcpy(Branch, Commit_Logs[i].CommitBranch);
+			break;
+		}
+	}
+	char SourcePath[1000];
+	
+	strcpy(SourcePath, GitRoot);
+	strcat(SourcePath, "\\.neogit\\repository\\");
+	strcat(SourcePath, Branch);
+	strcat(SourcePath, "\\");
+	strcat(SourcePath, CommitID);
+	
+	char Command[1000];
+	strcpy(Command, "xcopy \"");
+	strcat(Command, SourcePath);
+	strcat(Command, "\" \"");
+	strcat(Command, GitRoot);
+	strcat(Command, "\" /Y /S /Q");
+	system(Command);
+	strcpy(CheckoutMode, "OLD");
+	save_configuration(0);
+	printf("Commit ID %s checkedout...\n", CommitID);
+	return 1;	
+}
+
+void checkout(int argc, char * argv[])
+{
+	if (argc > 3)
+	{
+		printf("Too many parameters...\n");
+		return;
+	}
+	if (!strcmp(CopyArgv[2], "HEAD"))
+	{
+		checkout_branch(ActiveBranch);
+		return;
+	}	
+	if (check_change())
+	{
+		printf("There are files changed since last commit, cannot checkout...\n");
+		return;	
+	}
+	int res = checkout_branch(CopyArgv[2]);
+	if (res == 0)
+	{
+		res = checkout_id(CopyArgv[2]);
+	}
+	if (!res)
+	{
+		printf("The parameter is neither a branch name nor a commit ID...\n");
+		return;
+	}
+}
+
+void load_alias(char aliasNames[100][100], char aliasCommands[100][1000], int * aliasCounter)
+{
+	FILE * fp = fopen("c:\\git\\neogit_alias", "r");
+	if (!fp)
+	{
+		printf("Global alias file not found...\n");
+		return;
+	}
+	fscanf(fp, "%[^\n]s", aliasNames[*aliasCounter]);
+	while(!feof(fp))
+	{
+		fscanf(fp, "\n%[^\n]s", aliasCommands[*aliasCounter]);
+		(*aliasCounter)++;
+		fscanf(fp, "\n%[^\n]s", aliasNames[*aliasCounter]);
+	}
+	fclose(fp);
+	
+	char WFileAdd[1000];
+	strcpy(WFileAdd, GitRoot);
+	strcat(WFileAdd, "\\.neogit\\alias");
+	fp = fopen(WFileAdd, "r");
+	if (!fp)
+	{
+		printf("Local alias file not found...\n");
+		return;
+	}
+	fscanf(fp, "%[^\n]s", aliasNames[*aliasCounter]);
+	while(!feof(fp))
+	{
+		fscanf(fp, "\n%[^\n]s", aliasCommands[*aliasCounter]);
+		(*aliasCounter)++;
+		fscanf(fp, "\n%[^\n]s", aliasNames[*aliasCounter]);
+	}
+	fclose(fp);
+}
+
+int check_alias(int argc, char * argv[], char aliasNames[100][100], char aliasCommands[100][1000], int aliasCounter)
+{
+	int i;
+	for(i = 0; i < aliasCounter; i++)
+	{
+		if (!strcmp(CopyArgv[1], aliasNames[i]))
+		{
+			strcpy(AliasString, aliasCommands[i]);
+			return i;
+		}
+	}
+	return -1;
+}
+
+int load_and_check_alias(int argc, char * argv[])
+{
+	char aliasNames[100][100];
+	char aliasCommands[100][1000];
+	int aliasCounter = 0;
+	load_alias(aliasNames, aliasCommands, &aliasCounter);
+	if (check_alias(argc, argv, aliasNames, aliasCommands, aliasCounter) != -1)
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
 }
 
 void ParseMainArg(int argc, char * argv[])
@@ -1160,14 +1854,14 @@ void ParseMainArg(int argc, char * argv[])
 		init(argc);
 		return;
 	}
-	if (!strcmp(GitRoot, "None"))
-	{
-		printf("there is no intialized repository...\n");
-		return;
-	}
 	if (!strcmp(argv[1], "config"))
 	{
 		config(argc, argv);
+		return;
+	}
+	if (!strcmp(GitRoot, "None"))
+	{
+		printf("There is no initialized repository...\n");
 		return;
 	}
 	if (!strcmp(argv[1], "add"))
@@ -1217,8 +1911,16 @@ void ParseMainArg(int argc, char * argv[])
 	}
 	if (!strcmp(argv[1], "checkout"))
 	{
-		
+		checkout(argc, argv);
+		return;
 	}
+	if (load_and_check_alias(argc, argv))
+	{
+		system(AliasString);
+		return;
+	}
+	printf("Wrong Command...\n");
+	return;
 }
 
 // a function to load Global Configuration
@@ -1227,13 +1929,15 @@ void LoadGlobalConfig()
 	FILE * fp = fopen("c:\\git\\neogit_config", "r");
 	if (!fp)
 	{
-		printf("Global Config File Not Found...\n");
+		printf("Global config file not found...\n");
 		return;
 	}
-	strcpy(CurUser.mode, "1");
-	fscanf(fp, "%s", &CurUser.Username);
-	fscanf(fp, "%s", &CurUser.Email);
+	strcpy(CurUser.name_mode, "1");
+	strcpy(CurUser.email_mode, "1");
+	fscanf(fp, "%[^\n]s", &CurUser.Username);
+	fscanf(fp, "\n%[^\n]s", &CurUser.Email);
 	strcpy(ActiveBranch, "master");
+	strcpy(CheckoutMode, "HEAD");
 	fclose(fp);
 }
 
@@ -1241,7 +1945,7 @@ void LoadGlobalConfig()
 void LoadLocalConfig()
 {
   	char WFileAdd[256];
-  	struct User Temp;
+  	char TempData[256];
   	strcpy(WFileAdd, GitRoot);
 	strcat(WFileAdd, "\\.neogit");
 	if (dir_exists(WFileAdd))
@@ -1250,18 +1954,29 @@ void LoadLocalConfig()
 		FILE * fp = fopen(WFileAdd, "r");
 		if (!fp)
 		{
-			printf("Local Config File Not Found...\n");
+			printf("Local config file not found...\n");
 			return;
 		}
-		fscanf(fp, "%s", &CurUser.mode);
-		fscanf(fp, "%s", &Temp.Username);
-		fscanf(fp, "%s", &Temp.Username);
-		if (!strcmp(CurUser.mode, "0"))
+		fscanf(fp, "%[^\n]s", &CurUser.name_mode);
+		if (!strcmp(CurUser.name_mode, "0"))
 		{
-			strcpy(CurUser.Username, Temp.Username);
-			strcpy(CurUser.Email, Temp.Email);
+			fscanf(fp, "\n%[^\n]s", &CurUser.Username);
 		}
-		fscanf(fp, "%s", ActiveBranch);
+		else
+		{
+			fscanf(fp, "\n%[^\n]s", TempData);
+		}
+		fscanf(fp, "\n%[^\n]s", &CurUser.email_mode);
+		if (!strcmp(CurUser.name_mode, "0"))
+		{
+			fscanf(fp, "\n%[^\n]s", &CurUser.Email);
+		}
+		else
+		{
+			fscanf(fp, "\n%[^\n]s", TempData);
+		}
+		fscanf(fp, "\n%[^\n]s", ActiveBranch);
+		fscanf(fp, "\n%[^\n]s", CheckoutMode);
 		fclose(fp);
 	}
 }
@@ -1269,10 +1984,8 @@ void LoadLocalConfig()
 void toLower(int argc, char *argv[])
 {
 	int i,j;
-	CopyArgv = (char **) malloc(argc * sizeof(char*));
 	for(i = 0; i < argc; i++)
 	{
-		CopyArgv[i] = malloc(sizeof(argv[i]));
 		strcpy(CopyArgv[i], argv[i]);
 	}
 	for(i = 1; i < argc; i++)
@@ -1285,53 +1998,13 @@ void toLower(int argc, char *argv[])
 	}
 }
 
-void Extract_Root()
-{
-	if (getcwd(cwd, sizeof(cwd)) == NULL) {
-    	printf("failed to get current working directory");
-    	exit(1);
-  	}
-	char WDirAdd[256];
-  	char Temp[256];
-   	strcpy(WDirAdd, cwd);
-	strcat(WDirAdd, "\\.neogit");
-	if (dir_exists(WDirAdd))
-	{
-		strcpy(GitRoot, cwd);
-	   	return;
-	}
-	
-  	strcpy(WDirAdd, cwd);
-  	int Pos = strlen(WDirAdd) - 1;
-  	while(Pos >= 0)
-  	{
-  		if (WDirAdd[Pos] != '\\')
-		{
-			WDirAdd[Pos] = '\0';
-			Pos--;
-		}
-		else
-		{
-			strcpy(Temp, WDirAdd);
-			strcat(WDirAdd, ".neogit");
-			if (dir_exists(WDirAdd))
-			{
-				strcpy(GitRoot, Temp);
-		       	return;	
-			}
-			Pos--;
-		}
-	}
-	strcpy(GitRoot, "None");
-	return;
-}
-
 int main(int argc, char * argv[])
 {
+	Extract_CWD();
 	Extract_Root();
 	LoadGlobalConfig();
 	LoadLocalConfig();
 	toLower(argc, argv);
 	ParseMainArg(argc, argv);
-	return 1;
+	return 0;
 }
